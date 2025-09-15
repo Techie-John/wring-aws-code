@@ -13,11 +13,11 @@ const PoolProvider = ({ children }) => {
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      const invoicesRes = await fetch('http://localhost:5000/api/invoices');
+      const invoicesRes = await fetch('/api/invoices');
       const invoicesData = await invoicesRes.json();
       setInvoices(invoicesData);
 
-      const statsRes = await fetch('http://localhost:5000/api/pool/stats');
+      const statsRes = await fetch('/api/pool/stats');
       const statsData = await statsRes.json();
       setStats(statsData);
     } catch (error) {
@@ -31,7 +31,7 @@ const PoolProvider = ({ children }) => {
   }, [fetchData]);
 
   const addInvoice = useCallback(async (formData) => {
-    const response = await fetch('http://localhost:5000/api/invoices/upload', {
+    const response = await fetch('/api/invoices/upload', {
       method: 'POST',
       body: formData
     });
@@ -48,7 +48,7 @@ const PoolProvider = ({ children }) => {
 
   const removeInvoice = useCallback(async (id) => {
     try {
-      await fetch(`http://localhost:5000/api/invoices/${id}`, {
+      await fetch(`/api/invoices/${id}`, {
         method: 'DELETE'
       });
       fetchData(); // Re-fetch data to get the updated pool stats
@@ -432,7 +432,7 @@ const InvoiceCard = ({ invoice }) => {
   useEffect(() => {
     const fetchSavings = async () => {
       try {
-        const response = await fetch(`http://localhost:5000/api/invoices/savings/${invoice.id}`);
+        const response = await fetch(`/api/invoices/savings/${invoice.id}`);
         const data = await response.json();
         setSavings(data);
       } catch (error) {
