@@ -5,16 +5,23 @@ const kv = createClient({
     token: process.env.KV_REST_API_TOKEN,
 });
 
-// Keys for storing data
 const INVOICES_KEY = 'invoices';
 
-// Function to get all invoices
 export const getInvoices = async () => {
-    const invoices = await kv.get(INVOICES_KEY);
-    return invoices || [];
+    try {
+        const invoices = await kv.get(INVOICES_KEY);
+        return invoices || [];
+    } catch (error) {
+        console.error("Error fetching invoices from KV:", error);
+        throw error;
+    }
 };
 
-// Function to set all invoices (overwrite)
 export const setInvoices = async (invoices) => {
-    await kv.set(INVOICES_KEY, invoices);
+    try {
+        await kv.set(INVOICES_KEY, invoices);
+    } catch (error) {
+        console.error("Error setting invoices in KV:", error);
+        throw error;
+    }
 };
