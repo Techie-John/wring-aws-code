@@ -1,9 +1,6 @@
-// api/invoices/upload.js
 import formidable from 'formidable';
 import fs from 'fs';
-
-// Simple in-memory storage (will reset between deployments)
-let invoices = [];
+import { getInvoices, setInvoices } from '../store'; // Import the new store
 
 export const config = {
   api: {
@@ -26,18 +23,16 @@ const PRICING_TIERS = {
 
 const parseInvoiceText = (text) => {
   const items = [];
-  
-  // Look for dollar amounts and assume they're AWS costs
   const dollarMatches = text.match(/\$([0-9,]+\.?[0-9]*)/g);
   if (dollarMatches && dollarMatches.length > 0) {
-    dollarMatches.slice(0, 5).forEach((match, index) => { // Max 5 items
+    dollarMatches.slice(0, 5).forEach((match, index) => {
       const cost = parseFloat(match.replace(/[\$,]/g, ''));
       if (cost > 0) {
         const services = ['EC2', 'S3', 'RDS', 'CloudFront', 'Lambda'];
         items.push({
           id: `item-${Date.now()}-${index}`,
           service: services[index % services.length],
-          usage: Math.round(cost * 10), // Simple estimation
+          usage: Math.round(cost * 10),
           totalCost: cost,
           region: 'us-east-1',
           unit: 'hours'
@@ -45,8 +40,6 @@ const parseInvoiceText = (text) => {
       }
     });
   }
-
-  // If no valid items found, create a dummy one
   if (items.length === 0) {
     items.push({
       id: `item-${Date.now()}`,
@@ -57,34 +50,28 @@ const parseInvoiceText = (text) => {
       unit: 'hours'
     });
   }
-
   const totalCost = items.reduce((sum, item) => sum + item.totalCost, 0);
   return { items, totalCost };
 };
 
 export default async function handler(req, res) {
-  // Enable CORS
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
-  
+
   if (req.method === 'OPTIONS') {
     return res.status(200).end();
   }
-
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
   try {
-    const form = formidable({
-      maxFileSize: 10 * 1024 * 1024, // 10MB
-    });
-
+    const form = formidable({ maxFileSize: 10 * 1024 * 1024 });
     const [fields, files] = await form.parse(req);
-    
-    const customerName = Array.isArray(fields.customerName) 
-      ? fields.customerName[0] 
+
+    const customerName = Array.isArray(fields.customerName)
+      ? fields.customerName[0]
       : fields.customerName;
 
     if (!customerName || !customerName.trim()) {
@@ -92,22 +79,17 @@ export default async function handler(req, res) {
     }
 
     const pdfFile = Array.isArray(files.invoice) ? files.invoice[0] : files.invoice;
-    
     if (!pdfFile) {
       return res.status(400).json({ error: 'No PDF file uploaded.' });
     }
-
     if (!pdfFile.mimetype || !pdfFile.mimetype.includes('pdf')) {
       return res.status(400).json({ error: 'Only PDF files are supported.' });
     }
 
-    // Read file content
     const fileContent = fs.readFileSync(pdfFile.filepath, 'utf8');
-    
-    // Simple parsing - just extract text and find dollar amounts
     const parseResult = parseInvoiceText(fileContent);
-    
-    const invoice = {
+
+    const newInvoice = {
       id: `invoice-${Date.now()}`,
       customerName: customerName.trim(),
       items: parseResult.items,
@@ -116,23 +98,23 @@ export default async function handler(req, res) {
       originalFileName: pdfFile.originalFilename || 'unknown.pdf'
     };
 
-    // Store in memory (you'd want a database in production)
-    invoices.push(invoice);
-    global.invoices = invoices; // Make it accessible to other functions
-    
-    res.status(201).json({ 
+    const invoices = await getInvoices();
+    invoices.push(newInvoice);
+    await setInvoices(invoices); // Persist the updated array
+
+    res.status(201).json({
       message: 'Invoice uploaded and parsed successfully.',
       invoice: {
-        id: invoice.id,
-        customerName: invoice.customerName,
-        itemCount: invoice.items.length,
-        totalCost: invoice.totalCost
+        id: newInvoice.id,
+        customerName: newInvoice.customerName,
+        itemCount: newInvoice.items.length,
+        totalCost: newInvoice.totalCost
       }
     });
 
   } catch (error) {
     console.error('Upload error:', error);
-    res.status(500).json({ 
+    res.status(500).json({
       error: 'Failed to process upload: ' + error.message
     });
   }

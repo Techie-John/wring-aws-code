@@ -1,4 +1,5 @@
-// api/pool/stats.js
+import { getInvoices } from '../store'; // Import the new store
+
 const calculateTieredCost = (service, usage) => {
   const PRICING_TIERS = {
     "EC2": [
@@ -12,40 +13,33 @@ const calculateTieredCost = (service, usage) => {
       { minUsage: 450001, maxUsage: Infinity, pricePerUnit: 0.021 }
     ]
   };
-
   const tiers = PRICING_TIERS[service] || PRICING_TIERS["EC2"];
   let cost = 0;
   let remainingUsage = usage;
 
   for (const tier of tiers) {
     if (remainingUsage <= 0) break;
-    
     const tierCapacity = tier.maxUsage === Infinity ? remainingUsage : tier.maxUsage - tier.minUsage + 1;
     const tierUsage = Math.min(remainingUsage, tierCapacity);
     cost += tierUsage * tier.pricePerUnit;
     remainingUsage -= tierUsage;
   }
-
   return cost;
 };
 
 export default async function handler(req, res) {
-  // Enable CORS
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
-  
+
   if (req.method === 'OPTIONS') {
     return res.status(200).end();
   }
-
   if (req.method !== 'GET') {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
-  // Get invoices from global storage
-  const invoices = global.invoices || [];
-
+  const invoices = await getInvoices(); // Get from persistent storage
   const totalUsage = {};
   let totalCost = 0;
 
