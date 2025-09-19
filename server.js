@@ -21,32 +21,32 @@ app.use(fileUpload());
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || 'YOUR_GEMINI_API_KEY_HERE');
 const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
 
-// SKU-LEVEL PRICING STRUCTURE
-// Each SKU has its own volume discount tiers
+// CORRECTED SKU-LEVEL PRICING STRUCTURE
+// Each tier represents cumulative usage ranges with decreasing prices
 const SKU_PRICING_TIERS = {
-  // EC2 Instance Types
+  // EC2 Instance Types - Corrected cumulative pricing
   "EC2-t3.micro-us-east-1": [
-    { minUsage: 0, maxUsage: 750, pricePerUnit: 0.0104 }, // Free tier
-    { minUsage: 751, maxUsage: 8760, pricePerUnit: 0.0104 },
-    { minUsage: 8761, maxUsage: 87600, pricePerUnit: 0.0094 }, // Volume discount
-    { minUsage: 87601, maxUsage: Infinity, pricePerUnit: 0.0084 }
+    { minUsage: 0, maxUsage: 750, pricePerUnit: 0.0 }, // Free tier first 750 hours
+    { minUsage: 750, maxUsage: 8760, pricePerUnit: 0.0104 }, // Standard pricing
+    { minUsage: 8760, maxUsage: 87600, pricePerUnit: 0.0094 }, // 10% volume discount
+    { minUsage: 87600, maxUsage: Infinity, pricePerUnit: 0.0084 } // 20% volume discount
   ],
   "EC2-t3.small-us-east-1": [
     { minUsage: 0, maxUsage: 8760, pricePerUnit: 0.0208 },
-    { minUsage: 8761, maxUsage: 87600, pricePerUnit: 0.0188 },
-    { minUsage: 87601, maxUsage: Infinity, pricePerUnit: 0.0168 }
+    { minUsage: 8760, maxUsage: 87600, pricePerUnit: 0.0188 }, // 10% discount
+    { minUsage: 87600, maxUsage: Infinity, pricePerUnit: 0.0168 } // 20% discount
   ],
   "EC2-t3.medium-us-east-1": [
     { minUsage: 0, maxUsage: 8760, pricePerUnit: 0.0416 },
-    { minUsage: 8761, maxUsage: 87600, pricePerUnit: 0.0376 },
-    { minUsage: 87601, maxUsage: Infinity, pricePerUnit: 0.0336 }
+    { minUsage: 8760, maxUsage: 87600, pricePerUnit: 0.0376 },
+    { minUsage: 87600, maxUsage: Infinity, pricePerUnit: 0.0336 }
   ],
   
-  // S3 Storage Classes
+  // S3 Storage Classes - Real AWS tiered pricing
   "S3-Standard-us-east-1": [
-    { minUsage: 0, maxUsage: 50000, pricePerUnit: 0.023 }, // First 50TB
-    { minUsage: 50001, maxUsage: 450000, pricePerUnit: 0.022 }, // Next 450TB
-    { minUsage: 450001, maxUsage: Infinity, pricePerUnit: 0.021 } // Over 500TB
+    { minUsage: 0, maxUsage: 50000, pricePerUnit: 0.023 }, // First 50TB/month
+    { minUsage: 50000, maxUsage: 450000, pricePerUnit: 0.022 }, // Next 450TB/month  
+    { minUsage: 450000, maxUsage: Infinity, pricePerUnit: 0.021 } // Over 500TB/month
   ],
   "S3-IA-us-east-1": [
     { minUsage: 0, maxUsage: Infinity, pricePerUnit: 0.0125 }
@@ -58,48 +58,49 @@ const SKU_PRICING_TIERS = {
   // RDS Instance Types
   "RDS-db.t3.micro-us-east-1": [
     { minUsage: 0, maxUsage: 750, pricePerUnit: 0.0 }, // Free tier
-    { minUsage: 751, maxUsage: 8760, pricePerUnit: 0.017 },
-    { minUsage: 8761, maxUsage: 87600, pricePerUnit: 0.015 },
-    { minUsage: 87601, maxUsage: Infinity, pricePerUnit: 0.013 }
+    { minUsage: 750, maxUsage: 8760, pricePerUnit: 0.017 },
+    { minUsage: 8760, maxUsage: 87600, pricePerUnit: 0.015 },
+    { minUsage: 87600, maxUsage: Infinity, pricePerUnit: 0.013 }
   ],
   "RDS-db.t3.small-us-east-1": [
     { minUsage: 0, maxUsage: 8760, pricePerUnit: 0.034 },
-    { minUsage: 8761, maxUsage: 87600, pricePerUnit: 0.031 },
-    { minUsage: 87601, maxUsage: Infinity, pricePerUnit: 0.028 }
+    { minUsage: 8760, maxUsage: 87600, pricePerUnit: 0.031 },
+    { minUsage: 87600, maxUsage: Infinity, pricePerUnit: 0.028 }
   ],
   
-  // Data Transfer
+  // Data Transfer with correct AWS pricing tiers
   "DataTransfer-InternetEgress-us-east-1": [
     { minUsage: 0, maxUsage: 1, pricePerUnit: 0.0 }, // First 1GB free
-    { minUsage: 2, maxUsage: 10000, pricePerUnit: 0.09 }, // Up to 10TB
-    { minUsage: 10001, maxUsage: 50000, pricePerUnit: 0.085 }, // Next 40TB
-    { minUsage: 50001, maxUsage: Infinity, pricePerUnit: 0.070 } // Over 50TB
+    { minUsage: 1, maxUsage: 10000, pricePerUnit: 0.09 }, // Up to 10TB
+    { minUsage: 10000, maxUsage: 50000, pricePerUnit: 0.085 }, // Next 40TB
+    { minUsage: 50000, maxUsage: 150000, pricePerUnit: 0.070 }, // Next 100TB
+    { minUsage: 150000, maxUsage: Infinity, pricePerUnit: 0.050 } // Over 150TB
   ],
   
   // CloudFront
   "CloudFront-DataTransfer-us-east-1": [
     { minUsage: 0, maxUsage: 10000, pricePerUnit: 0.085 }, // First 10TB
-    { minUsage: 10001, maxUsage: 40000, pricePerUnit: 0.080 }, // Next 40TB
-    { minUsage: 40001, maxUsage: 100000, pricePerUnit: 0.060 }, // Next 100TB
-    { minUsage: 100001, maxUsage: Infinity, pricePerUnit: 0.040 } // Over 150TB
+    { minUsage: 10000, maxUsage: 50000, pricePerUnit: 0.080 }, // Next 40TB
+    { minUsage: 50000, maxUsage: 150000, pricePerUnit: 0.060 }, // Next 100TB
+    { minUsage: 150000, maxUsage: Infinity, pricePerUnit: 0.040 } // Over 150TB
   ],
   
   // SES
   "SES-EmailSending-us-east-1": [
     { minUsage: 0, maxUsage: 62000, pricePerUnit: 0.0 }, // First 62k emails free
-    { minUsage: 62001, maxUsage: Infinity, pricePerUnit: 0.0001 }
+    { minUsage: 62000, maxUsage: Infinity, pricePerUnit: 0.0001 }
   ],
   
   // SNS
   "SNS-Requests-us-east-1": [
-    { minUsage: 0, maxUsage: 1000000, pricePerUnit: 0.0000005 }, // First 1M requests free
-    { minUsage: 1000001, maxUsage: Infinity, pricePerUnit: 0.0000005 }
+    { minUsage: 0, maxUsage: 1000000, pricePerUnit: 0.0 }, // First 1M free
+    { minUsage: 1000000, maxUsage: Infinity, pricePerUnit: 0.0000005 }
   ]
 };
 
 let invoices = [];
 
-// Calculate tiered cost for a specific SKU and usage
+// CORRECTED: Calculate tiered cost with proper cumulative tier logic
 const calculateSKUTieredCost = (skuId, totalUsage) => {
   const tiers = SKU_PRICING_TIERS[skuId];
   if (!tiers) {
@@ -108,22 +109,33 @@ const calculateSKUTieredCost = (skuId, totalUsage) => {
   }
 
   let cost = 0;
-  let remainingUsage = totalUsage;
+  let usageProcessed = 0;
 
   for (const tier of tiers) {
-    if (remainingUsage <= 0) break;
+    // Calculate how much usage falls within this tier
+    const tierStart = tier.minUsage;
+    const tierEnd = tier.maxUsage === Infinity ? totalUsage : Math.min(tier.maxUsage, totalUsage);
     
-    const tierCapacity = tier.maxUsage === Infinity 
-      ? remainingUsage 
-      : Math.min(tier.maxUsage - tier.minUsage + 1, remainingUsage);
+    if (totalUsage <= tierStart) {
+      // No usage in this tier
+      break;
+    }
     
-    const usageInThisTier = Math.min(remainingUsage, tierCapacity);
-    cost += usageInThisTier * tier.pricePerUnit;
-    remainingUsage -= usageInThisTier;
+    const usageInThisTier = tierEnd - Math.max(tierStart, usageProcessed);
     
-    if (tier.maxUsage === Infinity) break;
+    if (usageInThisTier > 0) {
+      cost += usageInThisTier * tier.pricePerUnit;
+      usageProcessed += usageInThisTier;
+      
+      console.log(`SKU ${skuId}: Usage ${Math.max(tierStart, usageProcessed - usageInThisTier)}-${tierEnd} @ $${tier.pricePerUnit} = $${(usageInThisTier * tier.pricePerUnit).toFixed(4)}`);
+    }
+    
+    if (tierEnd >= totalUsage) {
+      break;
+    }
   }
 
+  console.log(`SKU ${skuId}: Total usage ${totalUsage}, Total cost: $${cost.toFixed(4)}`);
   return cost;
 };
 
@@ -133,14 +145,17 @@ const calculateCustomerSKUPooledCost = (customerSKUs, poolTotals) => {
 
   customerSKUs.forEach(sku => {
     const totalPoolUsage = poolTotals[sku.skuId] || 0;
-    if (totalPoolUsage === 0) return;
+    if (totalPoolUsage === 0 || sku.usage === 0) return;
 
     // Calculate total cost for this SKU at pool volume
     const totalSKUCost = calculateSKUTieredCost(sku.skuId, totalPoolUsage);
     
     // Customer pays their proportional share
     const customerShare = sku.usage / totalPoolUsage;
-    customerPooledCost += totalSKUCost * customerShare;
+    const customerSKUCost = totalSKUCost * customerShare;
+    customerPooledCost += customerSKUCost;
+
+    console.log(`Customer SKU ${sku.skuId}: Usage ${sku.usage}/${totalPoolUsage} (${(customerShare*100).toFixed(1)}%) = $${customerSKUCost.toFixed(4)}`);
   });
 
   return customerPooledCost;
@@ -248,7 +263,7 @@ const fallbackSKUParsing = (text) => {
   const servicePatterns = [
     { 
       pattern: /Amazon Simple Storage Service.*?\$([0-9,]+\.?[0-9]*)/gi, 
-      getSKU: (cost) => cost < 1 ? "S3-Standard-us-east-1" : "S3-Standard-us-east-1",
+      getSKU: (cost) => "S3-Standard-us-east-1",
       service: 'S3', 
       unit: 'GB',
       getUsage: (cost) => Math.round(cost / 0.023 * 1000)
@@ -385,7 +400,7 @@ app.post('/api/invoices/upload', async (req, res) => {
     console.log(`Successfully parsed invoice with SKU breakdown for ${customerName}:`);
     console.log(`- ${invoice.skus.length} SKUs found`);
     console.log(`- Total cost: $${invoice.totalCost.toFixed(2)}`);
-    console.log('- SKUs:', invoice.skus.map(s => s.skuId).join(', '));
+    console.log('- SKUs:', invoice.skus.map(s => `${s.skuId}:${s.usage}${s.unit}`).join(', '));
     
     res.status(201).json({ 
       message: 'Invoice uploaded and parsed with SKU breakdown successfully.',
@@ -405,7 +420,7 @@ app.post('/api/invoices/upload', async (req, res) => {
   }
 });
 
-// SKU-LEVEL Pool statistics endpoint
+// CORRECTED SKU-LEVEL Pool statistics endpoint
 app.get('/api/pool/stats', (req, res) => {
   const poolSKUTotals = {};
   let totalStandaloneCost = 0;
@@ -418,10 +433,11 @@ app.get('/api/pool/stats', (req, res) => {
     });
   });
 
-  // Calculate pooled costs using SKU-level volume tiers
+  // Calculate pooled costs using CORRECTED SKU-level volume tiers
   let totalPooledCost = 0;
   Object.entries(poolSKUTotals).forEach(([skuId, usage]) => {
-    totalPooledCost += calculateSKUTieredCost(skuId, usage);
+    const skuPooledCost = calculateSKUTieredCost(skuId, usage);
+    totalPooledCost += skuPooledCost;
   });
 
   const estimatedSavings = Math.max(0, totalStandaloneCost - totalPooledCost);
@@ -435,11 +451,11 @@ app.get('/api/pool/stats', (req, res) => {
     savingsPercentage: totalStandaloneCost > 0 ? (estimatedSavings / totalStandaloneCost * 100) : 0
   };
 
-  console.log('SKU-level pool stats:', {
+  console.log('CORRECTED SKU-level pool stats:', {
     customers: stats.totalCustomers,
-    standaloneCost: stats.totalCost,
-    pooledCost: stats.pooledCost,
-    savings: stats.estimatedSavings,
+    standaloneCost: stats.totalCost.toFixed(2),
+    pooledCost: stats.pooledCost.toFixed(2),
+    savings: stats.estimatedSavings.toFixed(2),
     savingsRate: `${stats.savingsPercentage.toFixed(1)}%`,
     skuCount: Object.keys(poolSKUTotals).length
   });
@@ -464,7 +480,7 @@ app.delete('/api/invoices/:id', (req, res) => {
   }
 });
 
-// SKU-LEVEL individual customer savings calculation
+// CORRECTED SKU-LEVEL individual customer savings calculation
 app.get('/api/invoices/savings/:id', (req, res) => {
   const { id } = req.params;
   const invoice = invoices.find(inv => inv.id === id);
@@ -473,8 +489,11 @@ app.get('/api/invoices/savings/:id', (req, res) => {
     return res.status(404).json({ error: 'Invoice not found.' });
   }
 
+  console.log(`\n=== CALCULATING SAVINGS FOR ${invoice.customerName} ===`);
+
   // Calculate standalone cost (what customer pays alone)
   const standalone = invoice.totalCost;
+  console.log(`Standalone cost: $${standalone.toFixed(2)}`);
   
   // Calculate pool usage totals by SKU
   const poolSKUTotals = {};
@@ -484,6 +503,8 @@ app.get('/api/invoices/savings/:id', (req, res) => {
     });
   });
 
+  console.log('Pool totals by SKU:', poolSKUTotals);
+
   // Calculate what this customer would pay in the pool at SKU level
   const customerPooledCost = calculateCustomerSKUPooledCost(invoice.skus, poolSKUTotals);
   
@@ -491,14 +512,14 @@ app.get('/api/invoices/savings/:id', (req, res) => {
   const percentage = standalone > 0 ? (savings / standalone) * 100 : 0;
 
   const result = {
-    standalone,
-    pooled: customerPooledCost,
-    savings,
-    percentage: Math.max(0, percentage)
+    standalone: parseFloat(standalone.toFixed(2)),
+    pooled: parseFloat(customerPooledCost.toFixed(2)),
+    savings: parseFloat(savings.toFixed(2)),
+    percentage: parseFloat(percentage.toFixed(2))
   };
 
-  console.log(`SKU-level savings calculation for ${invoice.customerName}:`, result);
-  console.log(`- SKUs processed: ${invoice.skus.map(s => s.skuId).join(', ')}`);
+  console.log(`FINAL RESULT for ${invoice.customerName}:`, result);
+  console.log(`=== END CALCULATION ===\n`);
 
   res.json(result);
 });
@@ -531,14 +552,22 @@ app.get('/api/debug/skus', (req, res) => {
       if (!debugInfo.skuBreakdown[sku.skuId]) {
         debugInfo.skuBreakdown[sku.skuId] = {
           totalUsage: 0,
-          totalCost: 0,
+          totalStandaloneCost: 0,
+          totalPooledCost: 0,
           customers: 0
         };
       }
       debugInfo.skuBreakdown[sku.skuId].totalUsage += sku.usage;
-      debugInfo.skuBreakdown[sku.skuId].totalCost += sku.totalCost;
+      debugInfo.skuBreakdown[sku.skuId].totalStandaloneCost += sku.totalCost;
       debugInfo.skuBreakdown[sku.skuId].customers += 1;
     });
+  });
+  
+  // Calculate pooled cost for each SKU
+  Object.keys(debugInfo.skuBreakdown).forEach(skuId => {
+    const usage = debugInfo.skuBreakdown[skuId].totalUsage;
+    debugInfo.skuBreakdown[skuId].totalPooledCost = calculateSKUTieredCost(skuId, usage);
+    debugInfo.skuBreakdown[skuId].savings = debugInfo.skuBreakdown[skuId].totalStandaloneCost - debugInfo.skuBreakdown[skuId].totalPooledCost;
   });
   
   debugInfo.totalSKUs = Object.keys(debugInfo.skuBreakdown).length;
@@ -562,6 +591,6 @@ const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
   console.log('Gemini AI configured:', !!process.env.GEMINI_API_KEY);
-  console.log('SKU-level pooling enabled with', Object.keys(SKU_PRICING_TIERS).length, 'SKUs');
-  console.log('Ready to process AWS invoice PDFs with SKU-level cost pooling...');
+  console.log('CORRECTED SKU-level pooling enabled with', Object.keys(SKU_PRICING_TIERS).length, 'SKUs');
+  console.log('Ready to process AWS invoice PDFs with CORRECTED SKU-level cost pooling...');
 });
