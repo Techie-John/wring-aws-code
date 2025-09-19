@@ -18,50 +18,80 @@ app.use(express.json());
 app.use(fileUpload());
 
 // Initialize Gemini AI
-// You'll need to set GEMINI_API_KEY environment variable
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || 'YOUR_GEMINI_API_KEY_HERE');
 const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
 
-// Updated Pricing Engine with more accurate AWS pricing tiers
-const PRICING_TIERS = {
-  "EC2": [
-    { minUsage: 0, maxUsage: 750, pricePerUnit: 0.0116 }, // t2.micro free tier
-    { minUsage: 751, maxUsage: 8760, pricePerUnit: 0.0464 }, // Regular pricing
-    { minUsage: 8761, maxUsage: 87600, pricePerUnit: 0.0418 }, // Volume discount tier 1
-    { minUsage: 87601, maxUsage: Infinity, pricePerUnit: 0.0372 } // Volume discount tier 2
+// SKU-LEVEL PRICING STRUCTURE
+// Each SKU has its own volume discount tiers
+const SKU_PRICING_TIERS = {
+  // EC2 Instance Types
+  "EC2-t3.micro-us-east-1": [
+    { minUsage: 0, maxUsage: 750, pricePerUnit: 0.0104 }, // Free tier
+    { minUsage: 751, maxUsage: 8760, pricePerUnit: 0.0104 },
+    { minUsage: 8761, maxUsage: 87600, pricePerUnit: 0.0094 }, // Volume discount
+    { minUsage: 87601, maxUsage: Infinity, pricePerUnit: 0.0084 }
   ],
-  "S3": [
-    { minUsage: 0, maxUsage: 50000, pricePerUnit: 0.023 }, // First 50TB per month
-    { minUsage: 50001, maxUsage: 450000, pricePerUnit: 0.022 }, // Next 450TB per month
-    { minUsage: 450001, maxUsage: Infinity, pricePerUnit: 0.021 } // Over 500TB per month
+  "EC2-t3.small-us-east-1": [
+    { minUsage: 0, maxUsage: 8760, pricePerUnit: 0.0208 },
+    { minUsage: 8761, maxUsage: 87600, pricePerUnit: 0.0188 },
+    { minUsage: 87601, maxUsage: Infinity, pricePerUnit: 0.0168 }
   ],
-  "RDS": [
-    { minUsage: 0, maxUsage: 750, pricePerUnit: 0.0 }, // Free tier (db.t2.micro)
-    { minUsage: 751, maxUsage: 8760, pricePerUnit: 0.017 }, // Regular db.t2.micro
-    { minUsage: 8761, maxUsage: 87600, pricePerUnit: 0.015 }, // Volume discount
+  "EC2-t3.medium-us-east-1": [
+    { minUsage: 0, maxUsage: 8760, pricePerUnit: 0.0416 },
+    { minUsage: 8761, maxUsage: 87600, pricePerUnit: 0.0376 },
+    { minUsage: 87601, maxUsage: Infinity, pricePerUnit: 0.0336 }
+  ],
+  
+  // S3 Storage Classes
+  "S3-Standard-us-east-1": [
+    { minUsage: 0, maxUsage: 50000, pricePerUnit: 0.023 }, // First 50TB
+    { minUsage: 50001, maxUsage: 450000, pricePerUnit: 0.022 }, // Next 450TB
+    { minUsage: 450001, maxUsage: Infinity, pricePerUnit: 0.021 } // Over 500TB
+  ],
+  "S3-IA-us-east-1": [
+    { minUsage: 0, maxUsage: Infinity, pricePerUnit: 0.0125 }
+  ],
+  "S3-Glacier-us-east-1": [
+    { minUsage: 0, maxUsage: Infinity, pricePerUnit: 0.004 }
+  ],
+  
+  // RDS Instance Types
+  "RDS-db.t3.micro-us-east-1": [
+    { minUsage: 0, maxUsage: 750, pricePerUnit: 0.0 }, // Free tier
+    { minUsage: 751, maxUsage: 8760, pricePerUnit: 0.017 },
+    { minUsage: 8761, maxUsage: 87600, pricePerUnit: 0.015 },
     { minUsage: 87601, maxUsage: Infinity, pricePerUnit: 0.013 }
   ],
-  "CloudFront": [
-    { minUsage: 0, maxUsage: 10000, pricePerUnit: 0.085 }, // First 10TB
-    { minUsage: 10001, maxUsage: 40000, pricePerUnit: 0.080 }, // Next 40TB
-    { minUsage: 40001, maxUsage: 100000, pricePerUnit: 0.060 }, // Next 100TB
-    { minUsage: 100001, maxUsage: Infinity, pricePerUnit: 0.040 } // Over 150TB
+  "RDS-db.t3.small-us-east-1": [
+    { minUsage: 0, maxUsage: 8760, pricePerUnit: 0.034 },
+    { minUsage: 8761, maxUsage: 87600, pricePerUnit: 0.031 },
+    { minUsage: 87601, maxUsage: Infinity, pricePerUnit: 0.028 }
   ],
-  "DataTransfer": [
+  
+  // Data Transfer
+  "DataTransfer-InternetEgress-us-east-1": [
     { minUsage: 0, maxUsage: 1, pricePerUnit: 0.0 }, // First 1GB free
     { minUsage: 2, maxUsage: 10000, pricePerUnit: 0.09 }, // Up to 10TB
     { minUsage: 10001, maxUsage: 50000, pricePerUnit: 0.085 }, // Next 40TB
     { minUsage: 50001, maxUsage: Infinity, pricePerUnit: 0.070 } // Over 50TB
   ],
-  "Lambda": [
-    { minUsage: 0, maxUsage: 1000000, pricePerUnit: 0.0000002 }, // First 1M requests free
-    { minUsage: 1000001, maxUsage: Infinity, pricePerUnit: 0.0000002 }
+  
+  // CloudFront
+  "CloudFront-DataTransfer-us-east-1": [
+    { minUsage: 0, maxUsage: 10000, pricePerUnit: 0.085 }, // First 10TB
+    { minUsage: 10001, maxUsage: 40000, pricePerUnit: 0.080 }, // Next 40TB
+    { minUsage: 40001, maxUsage: 100000, pricePerUnit: 0.060 }, // Next 100TB
+    { minUsage: 100001, maxUsage: Infinity, pricePerUnit: 0.040 } // Over 150TB
   ],
-  "SES": [
+  
+  // SES
+  "SES-EmailSending-us-east-1": [
     { minUsage: 0, maxUsage: 62000, pricePerUnit: 0.0 }, // First 62k emails free
     { minUsage: 62001, maxUsage: Infinity, pricePerUnit: 0.0001 }
   ],
-  "SNS": [
+  
+  // SNS
+  "SNS-Requests-us-east-1": [
     { minUsage: 0, maxUsage: 1000000, pricePerUnit: 0.0000005 }, // First 1M requests free
     { minUsage: 1000001, maxUsage: Infinity, pricePerUnit: 0.0000005 }
   ]
@@ -69,19 +99,25 @@ const PRICING_TIERS = {
 
 let invoices = [];
 
-// CORRECTED: Calculate tiered cost for given service and usage
-const calculateTieredCost = (service, totalUsage) => {
-  const tiers = PRICING_TIERS[service] || PRICING_TIERS["EC2"];
+// Calculate tiered cost for a specific SKU and usage
+const calculateSKUTieredCost = (skuId, totalUsage) => {
+  const tiers = SKU_PRICING_TIERS[skuId];
+  if (!tiers) {
+    console.warn(`No pricing tiers found for SKU: ${skuId}`);
+    return totalUsage * 0.01; // Fallback pricing
+  }
+
   let cost = 0;
   let remainingUsage = totalUsage;
 
   for (const tier of tiers) {
     if (remainingUsage <= 0) break;
     
-    // Calculate how much usage fits in this tier
-    const tierMax = tier.maxUsage === Infinity ? remainingUsage : Math.min(tier.maxUsage - tier.minUsage + 1, remainingUsage);
-    const usageInThisTier = Math.min(remainingUsage, tierMax);
+    const tierCapacity = tier.maxUsage === Infinity 
+      ? remainingUsage 
+      : Math.min(tier.maxUsage - tier.minUsage + 1, remainingUsage);
     
+    const usageInThisTier = Math.min(remainingUsage, tierCapacity);
     cost += usageInThisTier * tier.pricePerUnit;
     remainingUsage -= usageInThisTier;
     
@@ -91,38 +127,39 @@ const calculateTieredCost = (service, totalUsage) => {
   return cost;
 };
 
-// CORRECTED: Calculate what a customer would pay in the pool
-const calculateCustomerPooledCost = (customerItems, poolTotals) => {
+// Calculate what a customer would pay for their SKUs in the pool
+const calculateCustomerSKUPooledCost = (customerSKUs, poolTotals) => {
   let customerPooledCost = 0;
 
-  customerItems.forEach(item => {
-    const totalPoolUsage = poolTotals[item.service] || 0;
+  customerSKUs.forEach(sku => {
+    const totalPoolUsage = poolTotals[sku.skuId] || 0;
     if (totalPoolUsage === 0) return;
 
-    // Calculate total cost for this service at pool volume
-    const totalServiceCost = calculateTieredCost(item.service, totalPoolUsage);
+    // Calculate total cost for this SKU at pool volume
+    const totalSKUCost = calculateSKUTieredCost(sku.skuId, totalPoolUsage);
     
     // Customer pays their proportional share
-    const customerShare = item.usage / totalPoolUsage;
-    customerPooledCost += totalServiceCost * customerShare;
+    const customerShare = sku.usage / totalPoolUsage;
+    customerPooledCost += totalSKUCost * customerShare;
   });
 
   return customerPooledCost;
 };
 
-// Enhanced Gemini-powered invoice parsing
+// Enhanced Gemini parsing to extract SKU-level data
 const parseAWSInvoiceWithGemini = async (pdfText) => {
   const prompt = `
-You are an AWS billing expert. Parse this AWS invoice text and extract service usage data.
+You are an AWS billing expert. Parse this AWS invoice and break down services into specific SKUs (Stock Keeping Units).
 
 INVOICE TEXT:
 ${pdfText}
 
 Return ONLY valid JSON in this exact format:
 {
-  "services": [
+  "skus": [
     {
-      "service": "EC2|S3|RDS|CloudFront|DataTransfer|Lambda|SES|SNS",
+      "skuId": "SERVICE-TYPE-REGION",
+      "service": "EC2|S3|RDS|CloudFront|DataTransfer|SES|SNS",
       "cost": <number>,
       "estimatedUsage": <number>,
       "unit": "hours|GB|requests|emails",
@@ -132,31 +169,35 @@ Return ONLY valid JSON in this exact format:
   "totalCost": <number>
 }
 
-RULES:
-1. Map service names correctly:
-   - "Amazon Elastic Compute Cloud" → "EC2" 
-   - "Amazon Simple Storage Service" → "S3"
-   - "Amazon RDS Service" → "RDS" 
-   - "AWS Data Transfer" → "DataTransfer"
-   - "Amazon CloudFront" → "CloudFront"
-   - "Amazon Simple Email Service" → "SES"
-   - "Amazon Simple Notification Service" → "SNS"
-   - "AWS Lambda" → "Lambda"
+SKU BREAKDOWN RULES:
+1. For "Amazon Elastic Compute Cloud" costs, estimate instance types:
+   - Small costs (<$10): "EC2-t3.micro-us-east-1"
+   - Medium costs ($10-50): "EC2-t3.small-us-east-1" 
+   - Large costs (>$50): "EC2-t3.medium-us-east-1"
 
-2. For estimatedUsage, use these calculations:
-   - EC2: cost ÷ $0.0464 (assume t3.micro hours)
-   - S3: cost ÷ $0.023 × 1000 (GB storage)
-   - RDS: cost ÷ $0.017 (assume db hours)
-   - DataTransfer: cost ÷ $0.09 × 1000 (GB transfer)
-   - CloudFront: cost ÷ $0.085 × 1000 (GB transfer)
-   - SES: cost ÷ $0.0001 (emails sent)
-   - SNS: cost ÷ $0.0000005 (requests)
-   - Lambda: cost ÷ $0.0000002 (requests)
+2. For "Amazon Simple Storage Service" costs:
+   - Standard storage: "S3-Standard-us-east-1"
+   - For costs <$1: assume standard storage
 
-3. Extract actual dollar amounts from the invoice text
-4. Ignore $0.00 charges
-5. Sum all service costs for totalCost
-6. If region not specified, use "us-east-1"
+3. For "Amazon RDS Service" costs:
+   - Small costs (<$30): "RDS-db.t3.micro-us-east-1"
+   - Larger costs: "RDS-db.t3.small-us-east-1"
+
+4. For "AWS Data Transfer": "DataTransfer-InternetEgress-us-east-1"
+5. For "Amazon CloudFront": "CloudFront-DataTransfer-us-east-1"
+6. For "Amazon Simple Email Service": "SES-EmailSending-us-east-1"
+7. For "Amazon Simple Notification Service": "SNS-Requests-us-east-1"
+
+USAGE ESTIMATION:
+- EC2: cost ÷ $0.0104 (hours for t3.micro)
+- S3: cost ÷ $0.023 × 1000 (GB storage)
+- RDS: cost ÷ $0.017 (hours for db.t3.micro)
+- DataTransfer: cost ÷ $0.09 × 1000 (GB transfer)
+- CloudFront: cost ÷ $0.085 × 1000 (GB transfer)
+- SES: cost ÷ $0.0001 (emails sent)
+- SNS: cost ÷ $0.0000005 (requests)
+
+Extract actual costs from invoice, ignore $0.00 charges, assume us-east-1 region if not specified.
   `;
 
   try {
@@ -164,104 +205,133 @@ RULES:
     const response = await result.response;
     const text = response.text();
     
-    console.log('Gemini raw response:', text);
+    console.log('Gemini SKU parsing response:', text);
     
-    // Clean up the response to extract JSON
     let jsonText = text.trim();
-    
-    // Remove markdown code blocks if present
     if (jsonText.startsWith('```')) {
       jsonText = jsonText.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '');
     }
     
     const parsedData = JSON.parse(jsonText);
     
-    // Validate the response structure
-    if (!parsedData.services || !Array.isArray(parsedData.services)) {
-      throw new Error('Invalid response structure from Gemini');
+    if (!parsedData.skus || !Array.isArray(parsedData.skus)) {
+      throw new Error('Invalid SKU response structure from Gemini');
     }
     
-    // Convert to expected format
-    const items = parsedData.services.map((service, index) => ({
-      id: `item-${Date.now()}-${index}`,
-      service: service.service,
-      usage: Math.round(service.estimatedUsage || 0),
-      totalCost: parseFloat(service.cost || 0),
-      region: service.region || 'us-east-1',
-      unit: service.unit || 'units'
+    // Convert to expected format with SKU-level items
+    const skuItems = parsedData.skus.map((sku, index) => ({
+      id: `sku-${Date.now()}-${index}`,
+      skuId: sku.skuId,
+      service: sku.service,
+      usage: Math.round(sku.estimatedUsage || 0),
+      totalCost: parseFloat(sku.cost || 0),
+      region: sku.region || 'us-east-1',
+      unit: sku.unit || 'units'
     })).filter(item => item.totalCost > 0);
 
     return {
-      items,
-      totalCost: parsedData.totalCost || items.reduce((sum, item) => sum + item.totalCost, 0)
+      skus: skuItems,
+      totalCost: parsedData.totalCost || skuItems.reduce((sum, item) => sum + item.totalCost, 0)
     };
 
   } catch (error) {
-    console.error('Gemini parsing error:', error);
-    
-    // Fallback to basic parsing if Gemini fails
-    console.log('Falling back to basic parsing...');
-    return fallbackParsing(pdfText);
+    console.error('Gemini SKU parsing error:', error);
+    return fallbackSKUParsing(pdfText);
   }
 };
 
-// Fallback parsing if Gemini fails
-const fallbackParsing = (text) => {
-  const items = [];
+// Fallback SKU parsing if Gemini fails
+const fallbackSKUParsing = (text) => {
+  const skuItems = [];
+  
+  // Pattern matching with SKU estimation
   const servicePatterns = [
-    { pattern: /Amazon Simple Storage Service.*?\$([0-9,]+\.?[0-9]*)/gi, service: 'S3', unit: 'GB' },
-    { pattern: /AWS Data Transfer.*?\$([0-9,]+\.?[0-9]*)/gi, service: 'DataTransfer', unit: 'GB' },
-    { pattern: /Amazon RDS Service.*?\$([0-9,]+\.?[0-9]*)/gi, service: 'RDS', unit: 'hours' },
-    { pattern: /Amazon CloudFront.*?\$([0-9,]+\.?[0-9]*)/gi, service: 'CloudFront', unit: 'GB' },
-    { pattern: /Amazon Simple Email Service.*?\$([0-9,]+\.?[0-9]*)/gi, service: 'SES', unit: 'emails' },
-    { pattern: /Amazon Elastic Compute Cloud.*?\$([0-9,]+\.?[0-9]*)/gi, service: 'EC2', unit: 'hours' },
-    { pattern: /Amazon Simple Notification Service.*?\$([0-9,]+\.?[0-9]*)/gi, service: 'SNS', unit: 'requests' }
+    { 
+      pattern: /Amazon Simple Storage Service.*?\$([0-9,]+\.?[0-9]*)/gi, 
+      getSKU: (cost) => cost < 1 ? "S3-Standard-us-east-1" : "S3-Standard-us-east-1",
+      service: 'S3', 
+      unit: 'GB',
+      getUsage: (cost) => Math.round(cost / 0.023 * 1000)
+    },
+    { 
+      pattern: /AWS Data Transfer.*?\$([0-9,]+\.?[0-9]*)/gi, 
+      getSKU: () => "DataTransfer-InternetEgress-us-east-1",
+      service: 'DataTransfer', 
+      unit: 'GB',
+      getUsage: (cost) => Math.round(cost / 0.09 * 1000)
+    },
+    { 
+      pattern: /Amazon RDS Service.*?\$([0-9,]+\.?[0-9]*)/gi, 
+      getSKU: (cost) => cost < 30 ? "RDS-db.t3.micro-us-east-1" : "RDS-db.t3.small-us-east-1",
+      service: 'RDS', 
+      unit: 'hours',
+      getUsage: (cost) => Math.round(cost / 0.017)
+    },
+    { 
+      pattern: /Amazon CloudFront.*?\$([0-9,]+\.?[0-9]*)/gi, 
+      getSKU: () => "CloudFront-DataTransfer-us-east-1",
+      service: 'CloudFront', 
+      unit: 'GB',
+      getUsage: (cost) => Math.round(cost / 0.085 * 1000)
+    },
+    { 
+      pattern: /Amazon Simple Email Service.*?\$([0-9,]+\.?[0-9]*)/gi, 
+      getSKU: () => "SES-EmailSending-us-east-1",
+      service: 'SES', 
+      unit: 'emails',
+      getUsage: (cost) => Math.round(cost / 0.0001)
+    },
+    { 
+      pattern: /Amazon Elastic Compute Cloud.*?\$([0-9,]+\.?[0-9]*)/gi, 
+      getSKU: (cost) => {
+        if (cost < 10) return "EC2-t3.micro-us-east-1";
+        if (cost < 50) return "EC2-t3.small-us-east-1";
+        return "EC2-t3.medium-us-east-1";
+      },
+      service: 'EC2', 
+      unit: 'hours',
+      getUsage: (cost) => Math.round(cost / 0.0104)
+    },
+    { 
+      pattern: /Amazon Simple Notification Service.*?\$([0-9,]+\.?[0-9]*)/gi, 
+      getSKU: () => "SNS-Requests-us-east-1",
+      service: 'SNS', 
+      unit: 'requests',
+      getUsage: (cost) => Math.round(cost / 0.0000005)
+    }
   ];
 
-  servicePatterns.forEach(({ pattern, service, unit }) => {
+  servicePatterns.forEach(({ pattern, getSKU, service, unit, getUsage }) => {
     let match;
     while ((match = pattern.exec(text)) !== null) {
       const cost = parseFloat(match[1].replace(/[,$]/g, ''));
       if (cost > 0) {
-        items.push({
-          id: `item-${Date.now()}-${items.length}`,
-          service,
-          usage: estimateUsageFromCost(service, cost),
+        const skuId = getSKU(cost);
+        const usage = getUsage(cost);
+        
+        skuItems.push({
+          id: `sku-${Date.now()}-${skuItems.length}`,
+          skuId: skuId,
+          service: service,
+          usage: usage,
           totalCost: cost,
           region: 'us-east-1',
-          unit
+          unit: unit
         });
       }
     }
   });
 
-  const totalCost = items.reduce((sum, item) => sum + item.totalCost, 0);
-  return { items, totalCost };
+  const totalCost = skuItems.reduce((sum, item) => sum + item.totalCost, 0);
+  return { skus: skuItems, totalCost };
 };
 
-// Estimate usage from cost (fallback method)
-const estimateUsageFromCost = (service, cost) => {
-  const estimations = {
-    'EC2': Math.round(cost / 0.0464), // Hours
-    'S3': Math.round(cost / 0.023 * 1000), // GB
-    'RDS': Math.round(cost / 0.017), // Hours
-    'CloudFront': Math.round(cost / 0.085 * 1000), // GB
-    'DataTransfer': Math.round(cost / 0.09 * 1000), // GB
-    'Lambda': Math.round(cost / 0.0000002), // Requests
-    'SES': Math.round(cost / 0.0001), // Emails
-    'SNS': Math.round(cost / 0.0000005) // Requests
-  };
-  
-  return estimations[service] || Math.round(cost * 10);
-};
-
-// Enhanced PDF parsing with Gemini integration
+// Enhanced PDF parsing with SKU extraction
 const parseAWSInvoicePDF = async (pdfBuffer) => {
   try {
     const document = await pdfjsLib.getDocument({ data: pdfBuffer }).promise;
     let fullText = '';
     
-    // Extract text from all pages
     for (let i = 1; i <= document.numPages; i++) {
       const page = await document.getPage(i);
       const content = await page.getTextContent();
@@ -269,10 +339,7 @@ const parseAWSInvoicePDF = async (pdfBuffer) => {
       fullText += pageText + '\n';
     }
 
-    console.log('Extracted PDF text length:', fullText.length);
-    console.log('PDF text preview:', fullText.substring(0, 500));
-    
-    // Use Gemini to parse the invoice
+    console.log('Extracted PDF text for SKU parsing:', fullText.substring(0, 500));
     return await parseAWSInvoiceWithGemini(fullText);
     
   } catch (error) {
@@ -281,7 +348,7 @@ const parseAWSInvoicePDF = async (pdfBuffer) => {
   }
 };
 
-// API endpoint for uploading invoices
+// API endpoint for uploading invoices with SKU processing
 app.post('/api/invoices/upload', async (req, res) => {
   if (!req.files || Object.keys(req.files).length === 0) {
     return res.status(400).json({ error: 'No files were uploaded.' });
@@ -299,15 +366,15 @@ app.post('/api/invoices/upload', async (req, res) => {
   }
 
   try {
-    console.log(`Processing PDF for customer: ${customerName}`);
-    console.log(`PDF size: ${pdfFile.size} bytes`);
+    console.log(`Processing PDF for SKU extraction: ${customerName}`);
     
     const parseResult = await parseAWSInvoicePDF(Uint8Array.from(pdfFile.data));
     
     const invoice = {
       id: `invoice-${Date.now()}`,
       customerName: customerName.trim(),
-      items: parseResult.items,
+      skus: parseResult.skus, // Now storing SKU-level data
+      items: parseResult.skus, // Keep items for backward compatibility
       totalCost: parseResult.totalCost,
       uploadDate: new Date(),
       originalFileName: pdfFile.name
@@ -315,16 +382,17 @@ app.post('/api/invoices/upload', async (req, res) => {
 
     invoices.push(invoice);
     
-    console.log(`Successfully parsed invoice for ${customerName}:`);
-    console.log(`- ${invoice.items.length} services found`);
+    console.log(`Successfully parsed invoice with SKU breakdown for ${customerName}:`);
+    console.log(`- ${invoice.skus.length} SKUs found`);
     console.log(`- Total cost: $${invoice.totalCost.toFixed(2)}`);
+    console.log('- SKUs:', invoice.skus.map(s => s.skuId).join(', '));
     
     res.status(201).json({ 
-      message: 'Invoice uploaded and parsed successfully.',
+      message: 'Invoice uploaded and parsed with SKU breakdown successfully.',
       invoice: {
         id: invoice.id,
         customerName: invoice.customerName,
-        itemCount: invoice.items.length,
+        itemCount: invoice.skus.length,
         totalCost: invoice.totalCost
       }
     });
@@ -332,48 +400,48 @@ app.post('/api/invoices/upload', async (req, res) => {
   } catch (error) {
     console.error('PDF processing error:', error);
     res.status(500).json({ 
-      error: 'Failed to parse PDF invoice: ' + error.message,
-      details: process.env.NODE_ENV === 'development' ? error.stack : 'Please ensure the PDF is a valid AWS invoice with readable text.'
+      error: 'Failed to parse PDF invoice: ' + error.message
     });
   }
 });
 
-// CORRECTED: Pool statistics endpoint
+// SKU-LEVEL Pool statistics endpoint
 app.get('/api/pool/stats', (req, res) => {
-  const poolTotals = {};
+  const poolSKUTotals = {};
   let totalStandaloneCost = 0;
 
-  // Calculate pool usage totals and standalone costs
+  // Calculate pool usage totals by SKU
   invoices.forEach(invoice => {
-    invoice.items.forEach(item => {
-      poolTotals[item.service] = (poolTotals[item.service] || 0) + item.usage;
-      totalStandaloneCost += item.totalCost;
+    invoice.skus.forEach(sku => {
+      poolSKUTotals[sku.skuId] = (poolSKUTotals[sku.skuId] || 0) + sku.usage;
+      totalStandaloneCost += sku.totalCost;
     });
   });
 
-  // Calculate pooled costs using volume tiers
+  // Calculate pooled costs using SKU-level volume tiers
   let totalPooledCost = 0;
-  Object.entries(poolTotals).forEach(([service, usage]) => {
-    totalPooledCost += calculateTieredCost(service, usage);
+  Object.entries(poolSKUTotals).forEach(([skuId, usage]) => {
+    totalPooledCost += calculateSKUTieredCost(skuId, usage);
   });
 
   const estimatedSavings = Math.max(0, totalStandaloneCost - totalPooledCost);
 
   const stats = {
     totalCustomers: invoices.length,
-    totalUsage: poolTotals,
+    totalUsage: poolSKUTotals, // Now shows SKU-level totals
     totalCost: totalStandaloneCost,
     pooledCost: totalPooledCost,
     estimatedSavings: estimatedSavings,
     savingsPercentage: totalStandaloneCost > 0 ? (estimatedSavings / totalStandaloneCost * 100) : 0
   };
 
-  console.log('Pool stats:', {
+  console.log('SKU-level pool stats:', {
     customers: stats.totalCustomers,
     standaloneCost: stats.totalCost,
     pooledCost: stats.pooledCost,
     savings: stats.estimatedSavings,
-    savingsRate: `${stats.savingsPercentage.toFixed(1)}%`
+    savingsRate: `${stats.savingsPercentage.toFixed(1)}%`,
+    skuCount: Object.keys(poolSKUTotals).length
   });
 
   res.json(stats);
@@ -396,7 +464,7 @@ app.delete('/api/invoices/:id', (req, res) => {
   }
 });
 
-// CORRECTED: Calculate individual customer savings
+// SKU-LEVEL individual customer savings calculation
 app.get('/api/invoices/savings/:id', (req, res) => {
   const { id } = req.params;
   const invoice = invoices.find(inv => inv.id === id);
@@ -408,16 +476,16 @@ app.get('/api/invoices/savings/:id', (req, res) => {
   // Calculate standalone cost (what customer pays alone)
   const standalone = invoice.totalCost;
   
-  // Calculate pool usage totals
-  const poolTotals = {};
+  // Calculate pool usage totals by SKU
+  const poolSKUTotals = {};
   invoices.forEach(inv => {
-    inv.items.forEach(item => {
-      poolTotals[item.service] = (poolTotals[item.service] || 0) + item.usage;
+    inv.skus.forEach(sku => {
+      poolSKUTotals[sku.skuId] = (poolSKUTotals[sku.skuId] || 0) + sku.usage;
     });
   });
 
-  // Calculate what this customer would pay in the pool
-  const customerPooledCost = calculateCustomerPooledCost(invoice.items, poolTotals);
+  // Calculate what this customer would pay in the pool at SKU level
+  const customerPooledCost = calculateCustomerSKUPooledCost(invoice.skus, poolSKUTotals);
   
   const savings = Math.max(0, standalone - customerPooledCost);
   const percentage = standalone > 0 ? (savings / standalone) * 100 : 0;
@@ -429,26 +497,51 @@ app.get('/api/invoices/savings/:id', (req, res) => {
     percentage: Math.max(0, percentage)
   };
 
-  console.log(`Savings calculation for ${invoice.customerName}:`, result);
+  console.log(`SKU-level savings calculation for ${invoice.customerName}:`, result);
+  console.log(`- SKUs processed: ${invoice.skus.map(s => s.skuId).join(', ')}`);
 
   res.json(result);
 });
 
-// Debug endpoint
-app.get('/api/debug/invoices', (req, res) => {
-  const debugInfo = invoices.map(invoice => ({
-    id: invoice.id,
-    customerName: invoice.customerName,
-    fileName: invoice.originalFileName,
-    itemCount: invoice.items.length,
-    totalCost: invoice.totalCost,
-    services: invoice.items.map(item => ({
-      service: item.service,
-      usage: item.usage,
-      cost: item.totalCost,
-      unit: item.unit
+// Debug endpoint showing SKU breakdown
+app.get('/api/debug/skus', (req, res) => {
+  const debugInfo = {
+    totalSKUs: 0,
+    skuBreakdown: {},
+    customers: invoices.map(invoice => ({
+      id: invoice.id,
+      customerName: invoice.customerName,
+      fileName: invoice.originalFileName,
+      skuCount: invoice.skus.length,
+      totalCost: invoice.totalCost,
+      skus: invoice.skus.map(sku => ({
+        skuId: sku.skuId,
+        service: sku.service,
+        usage: sku.usage,
+        cost: sku.totalCost,
+        unit: sku.unit,
+        region: sku.region
+      }))
     }))
-  }));
+  };
+  
+  // Calculate SKU totals across all customers
+  invoices.forEach(invoice => {
+    invoice.skus.forEach(sku => {
+      if (!debugInfo.skuBreakdown[sku.skuId]) {
+        debugInfo.skuBreakdown[sku.skuId] = {
+          totalUsage: 0,
+          totalCost: 0,
+          customers: 0
+        };
+      }
+      debugInfo.skuBreakdown[sku.skuId].totalUsage += sku.usage;
+      debugInfo.skuBreakdown[sku.skuId].totalCost += sku.totalCost;
+      debugInfo.skuBreakdown[sku.skuId].customers += 1;
+    });
+  });
+  
+  debugInfo.totalSKUs = Object.keys(debugInfo.skuBreakdown).length;
   
   res.json(debugInfo);
 });
@@ -459,7 +552,9 @@ app.get('/api/health', (req, res) => {
     status: 'OK', 
     timestamp: new Date().toISOString(),
     geminiConfigured: !!process.env.GEMINI_API_KEY,
-    invoicesCount: invoices.length
+    invoicesCount: invoices.length,
+    skuPoolingEnabled: true,
+    availableSKUs: Object.keys(SKU_PRICING_TIERS).length
   });
 });
 
@@ -467,5 +562,6 @@ const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
   console.log('Gemini AI configured:', !!process.env.GEMINI_API_KEY);
-  console.log('Ready to process AWS invoice PDFs with AI...');
+  console.log('SKU-level pooling enabled with', Object.keys(SKU_PRICING_TIERS).length, 'SKUs');
+  console.log('Ready to process AWS invoice PDFs with SKU-level cost pooling...');
 });
